@@ -80,7 +80,14 @@ class Color @JvmOverloads constructor(hexStr: String, a: Double = 1.0) {
 }
 
 class Font(val name: String, val size: Double) {
-    var weight: Int = 400
+    var weight: Int = when {
+        Regex("black|heavy", RegexOption.IGNORE_CASE).containsMatchIn(name) -> 800
+        Regex("demi|semi", RegexOption.IGNORE_CASE).containsMatchIn(name) -> 600
+        Regex("bold", RegexOption.IGNORE_CASE).containsMatchIn(name) -> 700
+        Regex("medium", RegexOption.IGNORE_CASE).containsMatchIn(name) -> 500
+        Regex("light|thin", RegexOption.IGNORE_CASE).containsMatchIn(name) -> 300
+        else -> 400
+    }
     var italic: Boolean = false
     var mono: Boolean =
         Regex("menlo|courier|mono|monaco|consolas", RegexOption.IGNORE_CASE).containsMatchIn(name)

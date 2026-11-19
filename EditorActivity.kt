@@ -1,6 +1,11 @@
 package com.scriptwidgets
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import java.io.File
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
@@ -27,6 +32,7 @@ class EditorActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var spinner: Spinner
     private var lastSaved = ""
+    private val REQ_IMPORT = 41
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -141,12 +147,52 @@ class EditorActivity : Activity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menu.add(0, 1, 0, "Run").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        menu.add(0, 2, 1, "Import file to Documents")
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == 1) runScript()
+        when (item.itemId) {
+            1 -> runScript()
+            2 -> startActivityForResult(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),
+                REQ_IMPORT
+            )
+        }
         return true
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri: Uri = data?.data ?: return
+        if (requestCode != REQ_IMPORT || resultCode != RESULT_OK) return
+        var display = "file"
+        contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (i >= 0 && c.moveToFirst()) display = c.getString(i) ?: display
+        }
+        val input = EditText(this).apply { setText(display) }
+        AlertDialog.Builder(this)
+            .setTitle("Save in Documents as")
+            .setMessage("Use the exact file name your script expects.")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val fileName = File(input.text.toString().trim().ifBlank { display }).name
+                val app = applicationContext
+                thread {
+                    try {
+                        app.contentResolver.openInputStream(uri)?.use { ins ->
+                            File(FileManager.docsDir(app), fileName).outputStream().use { ins.copyTo(it) }
+                        }
+                        runOnUiThread { runScript() }
+                    } catch (e: Exception) {
+                        runOnUiThread { logView.text = "Import failed: ${e.message}" }
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     override fun onPause() {

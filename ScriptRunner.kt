@@ -167,6 +167,7 @@ object ScriptRunner {
     fun run(app: AContext, source: String, family: String, param: String?, timeoutMs: Long): Result {
         val logs = StringBuilder()
         Capture.last = null
+        ScriptEnv.app = app
         val factory = Factory(System.currentTimeMillis() + timeoutMs)
         val cx = factory.enterContext()
         var widget: ListWidget? = null
@@ -184,7 +185,8 @@ object ScriptRunner {
 
             val classes = listOf<Class<*>>(
                 Color::class.java, Font::class.java, Size::class.java, Point::class.java,
-                LinearGradient::class.java, ListWidget::class.java
+                LinearGradient::class.java, ListWidget::class.java,
+                Rect::class.java, DrawContext::class.java, FileManager::class.java
             )
             for (c in classes) {
                 ScriptableObject.putProperty(scope, c.simpleName, NativeJavaClass(scope, c))
