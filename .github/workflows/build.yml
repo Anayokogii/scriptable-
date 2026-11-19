@@ -1,0 +1,86 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Arrange project files
+        run: |
+          mkdir -p app/src/main/java/com/scriptwidgets app/src/main/res/layout app/src/main/res/xml app/src/main/assets
+          for f in *.kt; do [ -f "$f" ] && mv "$f" app/src/main/java/com/scriptwidgets/ || true; done
+          [ -f AndroidManifest.xml ] && mv AndroidManifest.xml app/src/main/ || true
+          [ -f widget_layout.xml ] && mv widget_layout.xml app/src/main/res/layout/ || true
+          [ -f widget_info.xml ] && mv widget_info.xml app/src/main/res/xml/ || true
+          [ -f prelude.js ] && mv prelude.js app/src/main/assets/ || true
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "ScriptWidgets"
+          include(":app")
+          EOF
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          EOF
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.scriptwidgets"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.scriptwidgets"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies {
+              implementation("org.mozilla:rhino:1.7.15")
+          }
+          EOF
+          find app -type f | sort
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: script-widgets-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
