@@ -16,24 +16,28 @@ import kotlin.math.sqrt
 object WidgetPrefs {
     private fun p(c: Context) = c.getSharedPreferences("widgets", Context.MODE_PRIVATE)
 
-    fun save(c: Context, id: Int, script: String, param: String?) {
+    fun save(c: Context, id: Int, script: String, param: String?, live: Boolean = true) {
         val e = p(c).edit()
         e.putString("s$id", script)
         if (param == null) e.remove("p$id") else e.putString("p$id", param)
+        e.putBoolean("l$id", live)
         e.apply()
     }
 
     fun script(c: Context, id: Int): String? = p(c).getString("s$id", null)
     fun param(c: Context, id: Int): String? = p(c).getString("p$id", null)
 
+    /** Live widgets update every second while the screen is on. Defaults to on. */
+    fun live(c: Context, id: Int): Boolean = p(c).getBoolean("l$id", true)
+
     fun remove(c: Context, id: Int) {
-        p(c).edit().remove("s$id").remove("p$id").apply()
+        p(c).edit().remove("s$id").remove("p$id").remove("l$id").apply()
     }
 }
 
 object WidgetUpdater {
 
-    fun update(ctx: Context, mgr: AppWidgetManager, id: Int) {
+    fun update(ctx: Context, mgr: AppWidgetManager, id: Int, fast: Boolean = false) {
         val dm = ctx.resources.displayMetrics
         val opts = mgr.getAppWidgetOptions(id)
         var dpW = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).toDouble()
@@ -65,12 +69,17 @@ object WidgetUpdater {
                 "Remove this widget and add it again to pick a script.", w, h, family
             )
         } else {
-            val out = WidgetEngine.run(
-                ctx, ScriptStore.read(ctx, script), WidgetPrefs.param(ctx, id), w, h, family, 20_000
-            )
-            url = out.url
-            refreshAt = out.refreshAt
-            out.bitmap
+            ScriptEnv.live = fast
+            try {
+                val out = WidgetEngine.run(
+                    ctx, ScriptStore.read(ctx, script), WidgetPrefs.param(ctx, id), w, h, family, 20_000
+                )
+                url = out.url
+                refreshAt = out.refreshAt
+                out.bitmap
+            } finally {
+                ScriptEnv.live = false
+            }
         }
         rv.setImageViewBitmap(R.id.widget_image, bitmap)
 
@@ -84,7 +93,8 @@ object WidgetUpdater {
         rv.setOnClickPendingIntent(R.id.widget_image, tap)
         mgr.updateAppWidget(id, rv)
 
-        scheduleRefresh(ctx, id, refreshAt)
+        // Live ticks run every second; the alarm is only the fallback for when the screen is off.
+        if (!fast) scheduleRefresh(ctx, id, refreshAt)
     }
 
     private fun refreshIntent(ctx: Context, id: Int): Intent =
@@ -92,19 +102,16 @@ object WidgetUpdater {
             .setAction(ScriptWidgetProvider.ACTION_REFRESH)
             .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
 
-    /** Honour refreshAfterDate with an inexact alarm (never earlier than 5 minutes from now). */
+    /** Refresh at refreshAfterDate (min 5 minutes away), or every 15 minutes by default. */
     private fun scheduleRefresh(ctx: Context, id: Int, at: Long?) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = PendingIntent.getBroadcast(
             ctx, 1_000_000 + id, refreshIntent(ctx, id),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        if (at == null) {
-            am.cancel(pi)
-        } else {
-            val whenMs = max(at, System.currentTimeMillis() + 5 * 60_000L)
-            am.set(AlarmManager.RTC, whenMs, pi)
-        }
+        val now = System.currentTimeMillis()
+        val whenMs = if (at == null) now + 15 * 60_000L else max(at, now + 5 * 60_000L)
+        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenMs, pi)
     }
 
     fun updateAll(ctx: Context) {
@@ -120,7 +127,7 @@ class ScriptWidgetProvider : AppWidgetProvider() {
         const val ACTION_REFRESH = "com.scriptwidgets.REFRESH"
     }
 
-    private fun async(ctx: Context, block: () -> Unit) {
+    private fun async(block: () -> Unit) {
         val pending = goAsync()
         thread {
             try {
@@ -134,18 +141,20 @@ class ScriptWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, mgr: AppWidgetManager, ids: IntArray) {
         val app = context.applicationContext
-        async(context) { ids.forEach { WidgetUpdater.update(app, mgr, it) } }
+        LiveService.startIfNeeded(app)
+        async { ids.forEach { WidgetUpdater.update(app, mgr, it) } }
     }
 
     override fun onAppWidgetOptionsChanged(
         context: Context, mgr: AppWidgetManager, id: Int, newOptions: android.os.Bundle
     ) {
         val app = context.applicationContext
-        async(context) { WidgetUpdater.update(app, mgr, id) }
+        async { WidgetUpdater.update(app, mgr, id) }
     }
 
     override fun onDeleted(context: Context, ids: IntArray) {
         ids.forEach { WidgetPrefs.remove(context, it) }
+        LiveService.stopIfIdle(context.applicationContext)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -154,7 +163,8 @@ class ScriptWidgetProvider : AppWidgetProvider() {
             if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
                 val app = context.applicationContext
                 val mgr = AppWidgetManager.getInstance(app)
-                async(context) { WidgetUpdater.update(app, mgr, id) }
+                LiveService.startIfNeeded(app)
+                async { WidgetUpdater.update(app, mgr, id) }
             }
         } else {
             super.onReceive(context, intent)

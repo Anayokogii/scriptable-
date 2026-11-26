@@ -13,6 +13,11 @@ import kotlin.math.max
 object ScriptEnv {
     @JvmField
     var app: Context? = null
+
+    /** True while a live (once-a-second) tick runs; lets network results be cached briefly. */
+    @Volatile
+    @JvmField
+    var live: Boolean = false
 }
 
 class Rect(var x: Double, var y: Double, var width: Double, var height: Double)
@@ -88,9 +93,29 @@ class FileManager {
         File(p).writeText(s)
     }
 
+    private object ImageCache {
+        var key: String? = null
+        var bmp: Bitmap? = null
+    }
+
+    /** Decoded images are cached (by path + modified time) so once-a-second live updates stay cheap. */
     fun readImage(p: String): ScriptImage? {
         val f = File(p)
         if (!f.exists()) return null
+        val key = p + "|" + f.lastModified()
+        synchronized(ImageCache) {
+            val c = ImageCache.bmp
+            if (c != null && ImageCache.key == key && !c.isRecycled) return ScriptImage(c)
+        }
+        val img = readImageUncached(p)
+        if (img != null) synchronized(ImageCache) {
+            ImageCache.key = key
+            ImageCache.bmp = img.bitmap
+        }
+        return img
+    }
+
+    private fun readImageUncached(p: String): ScriptImage? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(p, bounds)
         var sample = 1

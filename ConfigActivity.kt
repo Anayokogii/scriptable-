@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
@@ -58,6 +59,13 @@ class ConfigActivity : Activity() {
         }
         root.addView(param)
 
+        val live = CheckBox(this).apply {
+            text = "Live mode (updates every second while the screen is on)"
+            isChecked = WidgetPrefs.live(this@ConfigActivity, widgetId)
+            setPadding(0, dp(16), 0, dp(8))
+        }
+        root.addView(live)
+
         val ok = Button(this).apply {
             text = "Add widget"
             setOnClickListener {
@@ -65,8 +73,10 @@ class ConfigActivity : Activity() {
                 WidgetPrefs.save(
                     this@ConfigActivity, widgetId,
                     names[spinner.selectedItemPosition],
-                    param.text.toString().ifBlank { null }
+                    param.text.toString().ifBlank { null },
+                    live.isChecked
                 )
+                if (live.isChecked) LiveService.startIfNeeded(this@ConfigActivity) else LiveService.stopIfIdle(this@ConfigActivity)
                 val app = applicationContext
                 val id = widgetId
                 thread { WidgetUpdater.update(app, AppWidgetManager.getInstance(app), id) }

@@ -50,7 +50,26 @@ class ConsoleBridge(private val sb: StringBuilder) {
 /** Native functions the JS prelude builds on. */
 class Bridge(private val ctx: AContext) {
 
+    private companion object {
+        val cache = HashMap<String, Pair<Long, HttpResult>>()
+    }
+
+    /** In live mode the script re-runs every second, so identical GET requests are cached for 60s. */
     fun http(url: String, method: String?, headersJson: String?, body: String?, timeoutMs: Int): HttpResult {
+        val cacheable = ScriptEnv.live && (method == null || method == "GET") && body.isNullOrEmpty()
+        val key = url + "|" + (headersJson ?: "")
+        if (cacheable) {
+            synchronized(cache) {
+                val hit = cache[key]
+                if (hit != null && System.currentTimeMillis() - hit.first < 60_000) return hit.second
+            }
+        }
+        val res = httpReal(url, method, headersJson, body, timeoutMs)
+        if (cacheable) synchronized(cache) { cache[key] = Pair(System.currentTimeMillis(), res) }
+        return res
+    }
+
+    private fun httpReal(url: String, method: String?, headersJson: String?, body: String?, timeoutMs: Int): HttpResult {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.requestMethod = method ?: "GET"
         conn.connectTimeout = timeoutMs
