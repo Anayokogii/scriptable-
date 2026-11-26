@@ -166,7 +166,7 @@ object ScriptRunner {
             val cx = super.makeContext()
             cx.optimizationLevel = -1 // interpreter mode: required on Android
             cx.languageVersion = JsContext.VERSION_ES6
-            cx.instructionObserverThreshold = 20000
+            cx.setInstructionObserverThreshold(20000)
             return cx
         }
 
@@ -183,7 +183,10 @@ object ScriptRunner {
         .replace(Regex("\\bawait\\s+"), "")
         .replace(Regex("\\basync\\s+(?=function\\b|\\(|[A-Za-z_])"), "")
 
-    fun run(app: AContext, source: String, family: String, param: String?, timeoutMs: Long): Result {
+    fun run(
+        app: AContext, source: String, family: String, param: String?, timeoutMs: Long,
+        vw: Double = 0.0, vh: Double = 0.0
+    ): Result {
         val logs = StringBuilder()
         Capture.last = null
         ScriptEnv.app = app
@@ -214,7 +217,7 @@ object ScriptRunner {
             val paramLit = if (param == null) "null" else JSONObject.quote(param)
             cx.evaluateString(
                 scope,
-                "var config={runsInWidget:true,runsInApp:false,runsWithSiri:false,runsFromHomeScreen:false,widgetFamily:'$family'};" +
+                "var config={runsInWidget:true,runsInApp:false,runsWithSiri:false,runsFromHomeScreen:false,widgetFamily:'$family',widgetWidth:$vw,widgetHeight:$vh};" +
                     "var args={widgetParameter:$paramLit,shortcutParameter:null,plainTexts:[],queryParameters:{},fileURLs:[],images:[],urls:[]};",
                 "env", 1, null
             )
