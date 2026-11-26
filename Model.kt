@@ -91,6 +91,8 @@ class Font(val name: String, val size: Double) {
     var italic: Boolean = false
     var mono: Boolean =
         Regex("menlo|courier|mono|monaco|consolas", RegexOption.IGNORE_CASE).containsMatchIn(name)
+    var condensed: Boolean =
+        Regex("condensed|narrow", RegexOption.IGNORE_CASE).containsMatchIn(name)
     var serif: Boolean =
         Regex("times|georgia|palatino|baskerville|didot", RegexOption.IGNORE_CASE).containsMatchIn(name)
 
@@ -178,6 +180,13 @@ open class WidgetText(text: String) : Element() {
     var shadowColor: Color? = null
     var shadowRadius: Double = 0.0
     var shadowOffset: Point? = null
+
+    /** Stretches the text vertically (1.0 = normal); gives the tall, narrow clock look. */
+    var verticalScale: Double = 1.0
+
+    /** Optional outline drawn around the glyphs (used for the glass effect). */
+    var outlineColor: Color? = null
+    var outlineWidth: Double = 0.0
 
     /** 0 = leading, 1 = center, 2 = trailing */
     @JvmField

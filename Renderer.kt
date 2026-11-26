@@ -40,8 +40,11 @@ class Renderer(private val isDark: Boolean) {
             addRoundRect(RectF(0f, 0f, vw.toFloat(), vh.toFloat()), 22f, 22f, Path.Direction.CW)
         }
         cv.clipPath(clip)
-        val bg = Paint().apply { color = if (isDark) AColor.BLACK else AColor.WHITE }
-        cv.drawRect(0f, 0f, vw.toFloat(), vh.toFloat(), bg)
+        // Only paint the default backdrop when the script set no background (so transparent widgets work).
+        if (root.backgroundColor == null && root.backgroundGradient == null && root.backgroundImage == null) {
+            val bg = Paint().apply { color = if (isDark) AColor.BLACK else AColor.WHITE }
+            cv.drawRect(0f, 0f, vw.toFloat(), vh.toFloat(), bg)
+        }
         draw(root, cv, 0.0, 0.0, vw, vh)
         return bmp
     }
@@ -53,6 +56,7 @@ class Renderer(private val isDark: Boolean) {
 
     private fun typeface(f: Font?): Typeface {
         val base = when {
+            f?.condensed == true -> Typeface.create("sans-serif-condensed", Typeface.NORMAL)
             f?.mono == true -> Typeface.MONOSPACE
             f?.serif == true -> Typeface.SERIF
             else -> Typeface.DEFAULT
@@ -172,7 +176,10 @@ class Renderer(private val isDark: Boolean) {
                 val l = buildLayout(e, iw)
                 var lw = 0f
                 for (i in 0 until l.lineCount) lw = max(lw, l.getLineWidth(i))
-                doubleArrayOf(min(ceil(lw.toDouble()) + 1, iw), l.height.toDouble())
+                doubleArrayOf(
+                    min(ceil(lw.toDouble()) + 1, iw),
+                    l.height.toDouble() * e.verticalScale.coerceAtLeast(0.1)
+                )
             }
             is WidgetImage -> measureImage(e, iw, ih)
             is Container -> measureContainer(e, iw, ih)
@@ -306,11 +313,29 @@ class Renderer(private val isDark: Boolean) {
     private fun drawText(e: WidgetText, cv: Canvas, x: Double, y: Double, w: Double, h: Double) {
         if (w <= 0) return
         val layout = buildLayout(e, w)
-        val dy = max(0.0, (h - layout.height) / 2.0)
+        val vs = e.verticalScale.coerceAtLeast(0.1)
+        val dy = max(0.0, (h - layout.height * vs) / 2.0)
         cv.save()
         cv.translate(x.toFloat(), (y + dy).toFloat())
+        if (vs != 1.0) cv.scale(1f, vs.toFloat())
+        val oc = e.outlineColor
+        if (oc != null && e.outlineWidth > 0) strokeOf(e, layout, oc).draw(cv)
         layout.draw(cv)
         cv.restore()
+    }
+
+    /** Same text as [base], drawn as an outline only. */
+    private fun strokeOf(e: WidgetText, base: StaticLayout, oc: Color): StaticLayout {
+        val sp = TextPaint(base.paint)
+        sp.clearShadowLayer()
+        sp.style = Paint.Style.STROKE
+        sp.strokeWidth = e.outlineWidth.toFloat()
+        sp.color = oc.resolve(isDark)
+        val b = StaticLayout.Builder.obtain(base.text, 0, base.text.length, sp, base.width)
+            .setIncludePad(false)
+            .setAlignment(base.alignment)
+        if (e.lineLimit > 0) b.setMaxLines(e.lineLimit).setEllipsize(TextUtils.TruncateAt.END)
+        return b.build()
     }
 
     private fun drawImage(e: WidgetImage, cv: Canvas, x: Double, y: Double, w: Double, h: Double) {
